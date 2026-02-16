@@ -178,7 +178,7 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect_Post(int client)
 {
-    if (client <= 0 || IsFakeClient(client))
+    if (client <= 0 || client > MaxClients)
     {
         return;
     }
@@ -750,7 +750,17 @@ bool StartKickBotsVote(int client)
 {
     if (IsVersusLikeMode())
     {
-        PrintToChat(client, "[\x04Vote\x01] Kick bots bloqueado em modos versus.");
+        char sMode[64];
+        if (g_hGameMode != null)
+        {
+            g_hGameMode.GetString(sMode, sizeof(sMode));
+        }
+        else
+        {
+            strcopy(sMode, sizeof(sMode), "unknown");
+        }
+
+        PrintToChat(client, "[\x04Vote\x01] Kick bots bloqueado em modo versus (%s).", sMode);
         return false;
     }
 
