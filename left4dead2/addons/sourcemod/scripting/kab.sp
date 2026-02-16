@@ -940,7 +940,12 @@ public Action Timer_ResetTickrateIfStillEmpty(Handle timer)
     {
         g_bHadHumanPlayers = false;
         SaveTickrateForCurrentServer(30);
-        TrySetTickrateConVar(30);
+        if (TrySetTickrateConVar(30))
+        {
+            char sCurrentMap[64];
+            GetCurrentMap(sCurrentMap, sizeof(sCurrentMap));
+            ForceChangeLevel(sCurrentMap, "Empty server tickrate reset");
+        }
     }
 
     return Plugin_Stop;
