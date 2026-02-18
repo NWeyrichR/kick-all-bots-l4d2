@@ -20,12 +20,16 @@ Database g_hTickrateDb = null;
 ConVar g_hHostname = null;
 bool g_bHadHumanPlayers = false;
 Handle g_hEmptyResetTimer = null;
+Handle g_hForceHLTVTimer = null;
+bool g_bForceHLTVRestartIssued = false;
 
 ConVar g_hCvarCooldown = null;
 ConVar g_hCvarPlayerLimit = null;
 ConVar g_hCvarDedicatedServ = null;
 ConVar g_hCvarAnnounceEnable = null;
 ConVar g_hCvarAnnounceInterval = null;
+ConVar g_hCvarForceHLTV = null;
+ConVar g_hCvarHLTVName = null;
 ConVar g_hGameMode = null;
 ConVar g_hTickDoorSpeed = null;
 ConVar g_hPistolDelayDualies = null;
@@ -71,6 +75,10 @@ public void OnPluginStart()
     g_hCvarAnnounceInterval = CreateConVar("sm_kab_announce_interval", "180.0", "Intervalo em segundos das mensagens automaticas KAB", FCVAR_NOTIFY);
     g_hCvarAnnounceEnable.AddChangeHook(OnAnnounceSettingsChanged);
     g_hCvarAnnounceInterval.AddChangeHook(OnAnnounceSettingsChanged);
+    g_hCvarForceHLTV = CreateConVar("sm_kabforceHLTV", "0", "Se 1, reinicia o mapa ate o bot SourceTV (HLTV) ficar ativo", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_hCvarForceHLTV.AddChangeHook(OnForceHLTVChanged);
+    g_hCvarHLTVName = CreateConVar("sm_kabhltvname", "SourceTV", "Nome esperado do bot HLTV/SourceTV para validacao do kabforceHLTV", FCVAR_NOTIFY);
+    g_hCvarHLTVName.AddChangeHook(OnForceHLTVChanged);
     g_hDeniedThisMap = new StringMap();
     g_hGameMode = FindConVar("mp_gamemode");
     g_hHostname = FindConVar("hostname");
@@ -96,17 +104,110 @@ public void OnMapStart()
     {
         g_hDeniedThisMap.Clear();
     }
+
+    g_bForceHLTVRestartIssued = false;
+    ScheduleForceHLTVCheck();
 }
 
 public void OnConfigsExecuted()
 {
     ApplySavedTickrateForCurrentServer();
     SetupAnnouncementTimer();
+    ScheduleForceHLTVCheck();
 }
 
 public void OnAnnounceSettingsChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     SetupAnnouncementTimer();
+}
+
+public void OnForceHLTVChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    g_bForceHLTVRestartIssued = false;
+    ScheduleForceHLTVCheck();
+}
+
+void ScheduleForceHLTVCheck()
+{
+    if (g_hForceHLTVTimer != null)
+    {
+        delete g_hForceHLTVTimer;
+        g_hForceHLTVTimer = null;
+    }
+
+    if (g_hCvarForceHLTV == null || !g_hCvarForceHLTV.BoolValue)
+    {
+        return;
+    }
+
+    g_hForceHLTVTimer = CreateTimer(8.0, Timer_CheckForceHLTV, _, TIMER_FLAG_NO_MAPCHANGE);
+}
+
+bool IsSourceTVBotActive()
+{
+    char sExpectedName[64];
+    if (g_hCvarHLTVName != null)
+    {
+        g_hCvarHLTVName.GetString(sExpectedName, sizeof(sExpectedName));
+        TrimString(sExpectedName);
+    }
+    else
+    {
+        sExpectedName[0] = '\0';
+    }
+
+    if (sExpectedName[0] == '\0')
+    {
+        strcopy(sExpectedName, sizeof(sExpectedName), "SourceTV");
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i))
+        {
+            continue;
+        }
+
+        if (IsClientSourceTV(i))
+        {
+            return true;
+        }
+
+        if (IsFakeClient(i))
+        {
+            char sName[64];
+            GetClientName(i, sName, sizeof(sName));
+            if (StrEqual(sName, sExpectedName, false))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+public Action Timer_CheckForceHLTV(Handle timer)
+{
+    g_hForceHLTVTimer = null;
+
+    if (g_hCvarForceHLTV == null || !g_hCvarForceHLTV.BoolValue)
+    {
+        return Plugin_Stop;
+    }
+
+    if (IsSourceTVBotActive() || g_bForceHLTVRestartIssued)
+    {
+        return Plugin_Stop;
+    }
+
+    g_bForceHLTVRestartIssued = true;
+
+    char sCurrentMap[64];
+    GetCurrentMap(sCurrentMap, sizeof(sCurrentMap));
+    PrintToServer("[KAB] sm_kabforceHLTV=1 e SourceTV inativo. Reiniciando mapa...");
+    ForceChangeLevel(sCurrentMap, "Waiting for SourceTV bot");
+    return Plugin_Stop;
 }
 
 void SetupAnnouncementTimer()
@@ -963,6 +1064,12 @@ public void OnPluginEnd()
     {
         delete g_hEmptyResetTimer;
         g_hEmptyResetTimer = null;
+    }
+
+    if (g_hForceHLTVTimer != null)
+    {
+        delete g_hForceHLTVTimer;
+        g_hForceHLTVTimer = null;
     }
 
     if (g_hTickrateDb != null)
